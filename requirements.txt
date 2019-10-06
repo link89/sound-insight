@@ -4,6 +4,7 @@ cffi==1.12.3
 chardet==3.0.4
 cycler==0.10.0
 docutils==0.15.2
+fire==0.2.1
 idna==2.8
 kiwisolver==1.1.0
 matplot==0.1.9
@@ -23,6 +24,7 @@ SimpleWebSocketServer==0.1.1
 six==1.12.0
 sounddevice==0.3.13
 SoundFile==0.10.2
+termcolor==1.1.0
 tqdm==4.36.1
 twine==1.15.0
 typing==3.7.4.1
