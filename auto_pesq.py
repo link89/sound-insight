@@ -6,6 +6,7 @@ from queue import Queue
 
 import numpy as np
 import scipy.signal as signal
+from scipy.signal.windows import blackmanharris
 
 import sounddevice as sd
 import soundfile as sf
@@ -40,12 +41,12 @@ def rolling_window(a, window):
     return np.lib.stride_tricks.as_strided(a, shape=shape, strides=strides)
 
 
-def convert_to_single_channel(arr: np.ndarray):
+def force_single_channel(arr: np.ndarray):
     if 1 == len(arr.shape):
         return arr
     if 2 == len(arr.shape):
         return arr[:, 0]
-    raise ValueError('unexpected audio format')
+    raise ValueError('too many dimensions (2 at most)')
 
 
 class AutoPESQ:
@@ -55,9 +56,11 @@ class AutoPESQ:
         assert sample_rate in (8000, 16000,), 'unsupported sample rate, valid: 8000, 16000)'
         self._sample_rate: int = sample_rate
         # force to signal channel, as ITU PESQ implementation doesn't support multi channels
-        self._sample_audio: np.ndarray = convert_to_single_channel(data)
+        self._sample_audio: np.ndarray = force_single_channel(data)
         # generate signal wave form
-        _chirp = chirp(self._sample_rate, self._sample_rate * 1)
+        _chirp_size = self._sample_rate
+        _chirp = chirp(self._sample_rate, _chirp_size) * blackmanharris(_chirp_size)
+        _chirp = _chirp / np.max(_chirp)
         self._chirp = _chirp - np.mean(_chirp)
         self._chirp_std = np.std(self._chirp)
 
@@ -102,7 +105,7 @@ class AutoPESQ:
             record_buf = np.zeros(record_w)
 
             while True:  # DSP loop
-                indata: np.ndarray = convert_to_single_channel(q.get())
+                indata: np.ndarray = force_single_channel(q.get())
                 assert blocksize == indata.size, 'indata size is not equal to blocksize!'
 
                 shift_in(in_buf, indata)
@@ -115,6 +118,8 @@ class AutoPESQ:
 
                 _2d = rolling_window(in_buf[1 - xcorr_w - blocksize:], xcorr_w)
                 xcorr = np.apply_along_axis(_correlate, 1, _2d)
+                if max(xcorr) > 0.2:
+                    print(max(xcorr))
                 shift_in(xcorr_buf, xcorr)
         # DSP End
 
