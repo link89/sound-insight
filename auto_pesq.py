@@ -63,7 +63,6 @@ class AutoPESQ:
         _chirp = _chirp / np.max(_chirp)
         self._chirp = _chirp - np.mean(_chirp)
         self._chirp_std = np.std(self._chirp)
-
         self._guard = np.zeros(self._sample_rate * 1)
         self._sample_audio_with_guard = np.concatenate((self._guard, self._chirp, self._guard, self._sample_audio))
 
@@ -75,7 +74,7 @@ class AutoPESQ:
                 device=device)
         sd.wait()
 
-    def score(self, device=None):
+    def score(self, device=None, xcorr_threshold=0.3):
         # queue for inter thread communication
         q = Queue(maxsize=4)
 
@@ -91,36 +90,63 @@ class AutoPESQ:
                             callback=input_audio_callback,
                             blocksize=blocksize,
                             device=device):
-            # window size
-            xcorr_w = self._chirp.size
-            record_w = self._guard.size + self._sample_audio.size
+            # audio recording
+            record_size = 0
+            record_fp: sf.SoundFile = None
+
+            previous_peak = 0
 
             # initialize buffer
-            buffer_size = self._chirp.size + self._guard.size * 2 + blocksize * 2
-
+            buffer_size = self._chirp.size + blocksize
             in_buf = np.zeros(buffer_size)
-            xcorr_buf = np.zeros(buffer_size)  # normalized cross correlate of chirp and in_buf
-
-            # buffer for audio recording
-            record_buf = np.zeros(record_w)
-
             while True:  # DSP loop
-                indata: np.ndarray = force_single_channel(q.get())
-                assert blocksize == indata.size, 'indata size is not equal to blocksize!'
+                try:
+                    indata: np.ndarray = force_single_channel(q.get())
+                    assert blocksize == indata.size, 'indata size is not equal to blocksize!'
+                    shift_in(in_buf, indata)
 
-                shift_in(in_buf, indata)
+                    def _correlate(a: np.ndarray):
+                        std = np.std(a)
+                        if std < self._chirp_std * 1e-4:
+                            return 0
+                        return np.mean((a - np.mean(a)) * self._chirp) / (std * self._chirp_std)
 
-                def _correlate(a: np.ndarray):
-                    std = np.std(a)
-                    if std < self._chirp_std * 1e-4:
-                        return 0
-                    return np.mean((a - np.mean(a)) * self._chirp) / (std * self._chirp_std)
+                    _2d = rolling_window(in_buf[1 - self._chirp.size - blocksize:], self._chirp.size)
+                    xcorr = np.apply_along_axis(_correlate, 1, _2d)
 
-                _2d = rolling_window(in_buf[1 - xcorr_w - blocksize:], xcorr_w)
-                xcorr = np.apply_along_axis(_correlate, 1, _2d)
+                    # peak detect
+                    max_pos = xcorr.argmax()
+                    max_xcorr = xcorr[max_pos]
+
+                    if max_xcorr > xcorr_threshold:
+                        if record_fp is None:
+                            # start recording
+                            record_fp = sf.SoundFile('change_me.wav', mode='x', samplerate=self._sample_rate, channels=1)
+                            record_size = self._sample_audio.size + self._guard.size
+                        elif previous_peak <
+                            # another peak is detected before previous
+
+
+
+
+
+
+
+
+
+                finally:
+                    if record_fp is not None:
+                        record_fp.close()
+
+
+
+
+
+
                 if max(xcorr) > 0.2:
                     print(max(xcorr))
-                shift_in(xcorr_buf, xcorr)
+
+
         # DSP End
 
 
